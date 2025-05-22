@@ -3,11 +3,15 @@
   "name": "Mindful Pet",
   "version": "1.0",
   "description": "A Tamagotchi-style pet that reacts to your screen time.",
-  "permissions": ["storage", "alarms"],
+  "permissions": [
+    "storage", 
+    "alarms"
+  ],
   "content_scripts": [
     {
       "matches": ["<all_urls>"],
-      "js": ["content.js"]
+      "js": ["content.js"],
+      "run_at": "document_idle"
     }
   ],
   "web_accessible_resources": [
@@ -24,6 +28,8 @@
     "service_worker": "background.js"
   },
   "icons": {
-    "48": "assets/pet_happy.png"
+    "16": "assets/pet_happy.png",
+    "48": "assets/pet_happy.png",
+    "128": "assets/pet_happy.png"
   }
 }

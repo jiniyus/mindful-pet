@@ -1,115 +1,175 @@
+// Clean implementation - no old code references
 (function () {
-  // Create pet element
-  const pet = document.createElement("img");
-  pet.id = "mindful-pet";
-  pet.src = chrome.runtime.getURL("assets/pet_happy.png");
-  
-  // Create container for positioning
+  // Prevent multiple instances
+  if (window.mindfulPetActive) return;
+  window.mindfulPetActive = true;
+
+  console.log("Mindful Pet content script loaded");
+
+  // Create pet container and image
   const container = document.createElement("div");
   container.id = "mindful-pet-container";
+  container.style.cssText = `
+    position: fixed;
+    top: 10px;
+    right: 10px;
+    z-index: 9999;
+    cursor: pointer;
+    width: 40px;
+    height: 40px;
+  `;
+
+  const pet = document.createElement("img");
+  pet.id = "mindful-pet";
+  pet.style.cssText = `
+    width: 40px;
+    height: 40px;
+    filter: drop-shadow(0 0 3px rgba(0,0,0,0.2));
+    transition: transform 0.3s ease;
+  `;
+  pet.src = chrome.runtime.getURL("assets/pet_happy.png");
+
   container.appendChild(pet);
   document.body.appendChild(container);
 
-  // Add styles
-  const style = document.createElement("style");
-  style.textContent = `
-    #mindful-pet-container {
-      position: fixed;
-      top: 10px;
-      right: 10px;
-      z-index: 9999;
-      cursor: pointer;
-      transition: all 0.3s ease;
-    }
-    #mindful-pet {
-      width: 40px;
-      height: 40px;
-      filter: drop-shadow(0 0 3px rgba(0,0,0,0.2));
-    }
-    #mindful-pet:hover {
-      transform: scale(1.1);
-    }
-  `;
-  document.head.appendChild(style);
+  // Hover effect
+  container.addEventListener('mouseenter', () => {
+    pet.style.transform = 'scale(1.1)';
+  });
+  container.addEventListener('mouseleave', () => {
+    pet.style.transform = 'scale(1)';
+  });
 
-  // Default time limit is 2 hours
-  const defaultLimitHours = 2;
+  // Time tracking variables
+  let lastUpdateTime = Date.now();
+  let isPageVisible = !document.hidden;
 
-  function getTodayKey() {
-    const today = new Date().toISOString().split("T")[0];
-    return `usage-${today}`;
-  }
+  // Listen for page visibility changes
+  document.addEventListener('visibilitychange', () => {
+    if (document.hidden) {
+      isPageVisible = false;
+      console.log("Page hidden - pausing tracking");
+    } else {
+      isPageVisible = true;
+      lastUpdateTime = Date.now();
+      console.log("Page visible - resuming tracking");
+    }
+  });
 
-  // Track time spent (in seconds)
+  // Track time every second
   setInterval(() => {
-    const key = getTodayKey();
-    chrome.storage.local.get([key, "screenLimit"], (data) => {
-      let time = data[key] || 0;
-      const limit = (data.screenLimit || defaultLimitHours) * 3600;
+    if (isPageVisible) {
+      chrome.storage.local.get(['dailyUsage'], (result) => {
+        if (chrome.runtime.lastError) {
+          console.error("Storage error:", chrome.runtime.lastError);
+          return;
+        }
+        
+        const currentUsage = result.dailyUsage || 0;
+        const newUsage = currentUsage + 1; // Add 1 second
+        
+        chrome.storage.local.set({ dailyUsage: newUsage }, () => {
+          if (chrome.runtime.lastError) {
+            console.error("Storage set error:", chrome.runtime.lastError);
+          } else {
+            console.log("Usage updated:", newUsage, "seconds");
+          }
+        });
+      });
+    }
+  }, 1000);
 
-      time += 5; // 5 seconds at a time
-      chrome.storage.local.set({ [key]: time });
+  // Update pet appearance based on usage
+  function updatePetAppearance() {
+    chrome.storage.local.get(['dailyUsage', 'screenLimit'], (result) => {
+      if (chrome.runtime.lastError) {
+        console.error("Storage error:", chrome.runtime.lastError);
+        return;
+      }
 
-      // Update pet mood
-      if (time < limit - 3600) {
+      const usage = result.dailyUsage || 0; // in seconds
+      const limit = (result.screenLimit || 0.5) * 3600; // convert hours to seconds
+      
+      console.log("Current usage:", usage, "seconds, Limit:", limit, "seconds");
+
+      if (usage < limit * 0.7) {
         pet.src = chrome.runtime.getURL("assets/pet_happy.png");
-      } else if (time < limit) {
+      } else if (usage < limit) {
         pet.src = chrome.runtime.getURL("assets/pet_idle.png");
       } else {
         pet.src = chrome.runtime.getURL("assets/pet_sad.png");
       }
     });
-  }, 5000);
+  }
 
-  // Add interaction
-  container.addEventListener("click", () => {
+  // Update pet every 5 seconds
+  setInterval(updatePetAppearance, 5000);
+  updatePetAppearance(); // Initial update
+
+  // Click handler for popup
+  container.addEventListener('click', (e) => {
+    e.stopPropagation();
+    
+    // Remove existing popup
+    const existingPopup = document.getElementById("mindful-pet-popup");
+    if (existingPopup) {
+      existingPopup.remove();
+      return;
+    }
+
+    // Create new popup
     const popup = document.createElement("div");
     popup.id = "mindful-pet-popup";
-    
-    chrome.storage.local.get([getTodayKey(), "screenLimit"], (data) => {
-      const timeSpent = Math.floor((data[getTodayKey()] || 0) / 60); // convert to minutes
-      const limit = data.screenLimit || defaultLimitHours;
+    popup.style.cssText = `
+      position: fixed;
+      top: 60px;
+      right: 10px;
+      background: white;
+      border-radius: 12px;
+      padding: 15px;
+      box-shadow: 0 4px 20px rgba(0,0,0,0.15);
+      z-index: 9998;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      font-size: 13px;
+      border: 1px solid #e1e5e9;
+      min-width: 140px;
+    `;
+
+    chrome.storage.local.get(['dailyUsage', 'screenLimit'], (result) => {
+      const usage = result.dailyUsage || 0;
+      const limit = result.screenLimit || 0.5;
       
+      const minutes = Math.floor(usage / 60);
+      const seconds = usage % 60;
+      const hours = Math.floor(minutes / 60);
+      const remainingMinutes = minutes % 60;
+      
+      const percentage = Math.min(100, (minutes / (limit * 60)) * 100);
+
       popup.innerHTML = `
-        <div class="pet-popup-content">
-          <p>Screen time today: ${Math.floor(timeSpent/60)}h ${timeSpent%60}m</p>
-          <p>Daily limit: ${limit}h</p>
+        <div style="text-align: left;">
+          <p style="margin: 8px 0; color: #333;"><strong>Today's Usage:</strong><br>${hours}h ${remainingMinutes}m</p>
+          <p style="margin: 8px 0; color: #333;"><strong>Daily Limit:</strong><br>${limit}h</p>
+          <div style="width: 100%; height: 6px; background-color: #f0f0f0; border-radius: 6px; overflow: hidden; margin-top: 10px;">
+            <div style="height: 100%; background: linear-gradient(90deg, #4CAF50, #81C784); border-radius: 6px; width: ${percentage}%; transition: width 0.3s ease;"></div>
+          </div>
         </div>
       `;
-      
-      const popupStyle = document.createElement("style");
-      popupStyle.textContent = `
-        #mindful-pet-popup {
-          position: fixed;
-          top: 60px;
-          right: 10px;
-          background: white;
-          border-radius: 8px;
-          padding: 10px;
-          box-shadow: 0 2px 10px rgba(0,0,0,0.2);
-          z-index: 9998;
-          font-family: Arial, sans-serif;
-          font-size: 12px;
-        }
-        .pet-popup-content {
-          min-width: 120px;
-        }
-      `;
-      
-      document.head.appendChild(popupStyle);
+
       document.body.appendChild(popup);
-      
+
       // Close popup when clicking elsewhere
       setTimeout(() => {
-        const closePopup = (e) => {
-          if (!popup.contains(e.target) && e.target !== container && e.target !== pet) {
-            document.body.removeChild(popup);
-            document.head.removeChild(popupStyle);
-            document.removeEventListener("click", closePopup);
+        const closeHandler = (event) => {
+          if (!popup.contains(event.target) && !container.contains(event.target)) {
+            popup.remove();
+            document.removeEventListener('click', closeHandler);
           }
         };
-        document.addEventListener("click", closePopup);
+        document.addEventListener('click', closeHandler);
       }, 100);
     });
   });
+
+  console.log("Mindful Pet setup complete");
 })();

@@ -9,35 +9,108 @@
   // Create pet container and image
   const container = document.createElement("div");
   container.id = "mindful-pet-container";
-  container.style.cssText = `
-    position: fixed;
-    top: 10px;
-    right: 10px;
-    z-index: 9999;
-    cursor: pointer;
-    width: 40px;
-    height: 40px;
-  `;
+  
+  // Get saved position or use default (bottom right)
+  chrome.storage.local.get(['petPosition'], (result) => {
+    const savedPosition = result.petPosition || { bottom: '20px', right: '20px' };
+    
+    container.style.cssText = `
+      position: fixed;
+      ${savedPosition.top ? `top: ${savedPosition.top};` : ''}
+      ${savedPosition.bottom ? `bottom: ${savedPosition.bottom};` : ''}
+      ${savedPosition.left ? `left: ${savedPosition.left};` : ''}
+      ${savedPosition.right ? `right: ${savedPosition.right};` : ''}
+      z-index: 9999;
+      cursor: grab;
+      width: 50px;
+      height: 50px;
+      user-select: none;
+    `;
+  });
 
   const pet = document.createElement("img");
   pet.id = "mindful-pet";
   pet.style.cssText = `
-    width: 40px;
-    height: 40px;
-    filter: drop-shadow(0 0 3px rgba(0,0,0,0.2));
+    width: 50px;
+    height: 50px;
+    filter: drop-shadow(0 0 5px rgba(0,0,0,0.3));
     transition: transform 0.3s ease;
+    pointer-events: none;
   `;
   pet.src = chrome.runtime.getURL("assets/pet_happy.png");
 
   container.appendChild(pet);
   document.body.appendChild(container);
 
-  // Hover effect
+  // Make pet draggable
+  let isDragging = false;
+  let startX, startY, startLeft, startTop;
+
+  container.addEventListener('mousedown', (e) => {
+    if (e.button !== 0) return; // Only left mouse button
+    
+    isDragging = true;
+    container.style.cursor = 'grabbing';
+    
+    startX = e.clientX;
+    startY = e.clientY;
+    
+    const rect = container.getBoundingClientRect();
+    startLeft = rect.left;
+    startTop = rect.top;
+    
+    e.preventDefault();
+  });
+
+  document.addEventListener('mousemove', (e) => {
+    if (!isDragging) return;
+    
+    const deltaX = e.clientX - startX;
+    const deltaY = e.clientY - startY;
+    
+    let newLeft = startLeft + deltaX;
+    let newTop = startTop + deltaY;
+    
+    // Keep pet within viewport bounds
+    const maxLeft = window.innerWidth - container.offsetWidth;
+    const maxTop = window.innerHeight - container.offsetHeight;
+    
+    newLeft = Math.max(0, Math.min(newLeft, maxLeft));
+    newTop = Math.max(0, Math.min(newTop, maxTop));
+    
+    // Update position
+    container.style.left = newLeft + 'px';
+    container.style.top = newTop + 'px';
+    container.style.right = 'auto';
+    container.style.bottom = 'auto';
+  });
+
+  document.addEventListener('mouseup', () => {
+    if (isDragging) {
+      isDragging = false;
+      container.style.cursor = 'grab';
+      
+      // Save new position
+      const rect = container.getBoundingClientRect();
+      const position = {
+        top: rect.top + 'px',
+        left: rect.left + 'px'
+      };
+      
+      chrome.storage.local.set({ petPosition: position });
+    }
+  });
+
+  // Hover effect (only when not dragging)
   container.addEventListener('mouseenter', () => {
-    pet.style.transform = 'scale(1.1)';
+    if (!isDragging) {
+      pet.style.transform = 'scale(1.1)';
+    }
   });
   container.addEventListener('mouseleave', () => {
-    pet.style.transform = 'scale(1)';
+    if (!isDragging) {
+      pet.style.transform = 'scale(1)';
+    }
   });
 
   // Time tracking variables
@@ -106,8 +179,18 @@
   setInterval(updatePetAppearance, 5000);
   updatePetAppearance(); // Initial update
 
-  // Click handler for popup
+  // Click handler for popup (only if not dragging)
+  let clickStartTime = 0;
+  
+  container.addEventListener('mousedown', (e) => {
+    clickStartTime = Date.now();
+  });
+  
   container.addEventListener('click', (e) => {
+    // Only show popup if it was a quick click (not a drag)
+    const clickDuration = Date.now() - clickStartTime;
+    if (clickDuration > 200) return; // Was probably a drag
+    
     e.stopPropagation();
     
     // Remove existing popup
@@ -117,13 +200,26 @@
       return;
     }
 
-    // Create new popup
+    // Create new popup positioned near pet
     const popup = document.createElement("div");
     popup.id = "mindful-pet-popup";
+    
+    const petRect = container.getBoundingClientRect();
+    let popupTop = petRect.top - 120; // Above pet by default
+    let popupLeft = petRect.left;
+    
+    // Adjust if popup would go off-screen
+    if (popupTop < 10) {
+      popupTop = petRect.bottom + 10; // Below pet instead
+    }
+    if (popupLeft + 180 > window.innerWidth) {
+      popupLeft = window.innerWidth - 190; // Move left
+    }
+    
     popup.style.cssText = `
       position: fixed;
-      top: 60px;
-      right: 10px;
+      top: ${popupTop}px;
+      left: ${popupLeft}px;
       background: white;
       border-radius: 12px;
       padding: 15px;
@@ -132,7 +228,7 @@
       font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
       font-size: 13px;
       border: 1px solid #e1e5e9;
-      min-width: 140px;
+      min-width: 160px;
     `;
 
     chrome.storage.local.get(['dailyUsage', 'screenLimit'], (result) => {

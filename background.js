@@ -8,10 +8,19 @@ chrome.runtime.onInstalled.addListener(() => {
   chrome.storage.local.set({ 
     screenLimit: 0.5, // 30 minutes for testing
     dailyUsage: 0,
-    lastResetDate: new Date().toDateString()
+    lastResetDate: new Date().toDateString(),
+    petPosition: { bottom: '20px', right: '20px' } // Default position
   }, () => {
     console.log("Default settings initialized");
   });
+});
+
+// Track window focus to coordinate across tabs
+let isWindowFocused = true;
+
+chrome.windows.onFocusChanged.addListener((windowId) => {
+  isWindowFocused = windowId !== chrome.windows.WINDOW_ID_NONE;
+  console.log("Window focus changed:", isWindowFocused);
 });
 
 // Reset daily usage at midnight

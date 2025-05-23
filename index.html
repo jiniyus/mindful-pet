@@ -8,7 +8,20 @@
   <div class="container">
     <div class="header">
       <h1>Mindful Pet</h1>
-      <img id="pet" src="assets/pet_happy.png" alt="Mindful Pet" />
+      <div class="pet-container">
+        <div class="pet-progress-wrapper">
+          <div class="donut-progress">
+            <svg viewBox="0 0 64 64">
+              <circle class="donut-bg" cx="32" cy="32" r="28"></circle>
+              <circle class="donut-fill" cx="32" cy="32" r="28" 
+                      stroke-dasharray="0 176" 
+                      id="donut-progress-circle"></circle>
+            </svg>
+            <img id="pet" src="assets/pet_happy.png" alt="Mindful Pet" />
+          </div>
+        </div>
+        <div class="usage-display" id="usage-display">0m / 2h</div>
+      </div>
     </div>
     
     <div class="stats">

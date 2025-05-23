@@ -6,7 +6,7 @@
 
   console.log("Mindful Pet content script loaded");
 
-  // Create pet container and image
+  // Create pet container
   const container = document.createElement("div");
   container.id = "mindful-pet-container";
   
@@ -22,25 +22,134 @@
       ${savedPosition.right ? `right: ${savedPosition.right};` : ''}
       z-index: 9999;
       cursor: grab;
-      width: 50px;
-      height: 50px;
+      width: 80px;
+      height: 90px;
       user-select: none;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
     `;
   });
 
+  // Create donut progress wrapper
+  const progressWrapper = document.createElement("div");
+  progressWrapper.style.cssText = `
+    position: relative;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 64px;
+    height: 64px;
+  `;
+
+  // Create SVG for donut progress
+  const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+  svg.setAttribute("viewBox", "0 0 64 64");
+  svg.style.cssText = `
+    width: 100%;
+    height: 100%;
+    transform: rotate(-90deg);
+  `;
+
+  // Background circle
+  const bgCircle = document.createElementNS("http://www.w3.org/2000/svg", "circle");
+  bgCircle.setAttribute("cx", "32");
+  bgCircle.setAttribute("cy", "32");
+  bgCircle.setAttribute("r", "28");
+  bgCircle.setAttribute("fill", "none");
+  bgCircle.setAttribute("stroke", "rgba(255, 255, 255, 0.3)");
+  bgCircle.setAttribute("stroke-width", "4");
+
+  // Progress circle
+  const progressCircle = document.createElementNS("http://www.w3.org/2000/svg", "circle");
+  progressCircle.setAttribute("cx", "32");
+  progressCircle.setAttribute("cy", "32");
+  progressCircle.setAttribute("r", "28");
+  progressCircle.setAttribute("fill", "none");
+  progressCircle.setAttribute("stroke", "#4ade80");
+  progressCircle.setAttribute("stroke-width", "4");
+  progressCircle.setAttribute("stroke-linecap", "round");
+  progressCircle.setAttribute("stroke-dasharray", "0 176");
+  progressCircle.style.transition = "stroke-dasharray 0.5s ease, stroke 0.3s ease";
+
+  svg.appendChild(bgCircle);
+  svg.appendChild(progressCircle);
+  progressWrapper.appendChild(svg);
+
+  // Create pet image
   const pet = document.createElement("img");
   pet.id = "mindful-pet";
   pet.style.cssText = `
-    width: 50px;
-    height: 50px;
+    width: 48px;
+    height: 48px;
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
     filter: drop-shadow(0 0 5px rgba(0,0,0,0.3));
     transition: transform 0.3s ease;
     pointer-events: none;
+    z-index: 2;
   `;
   pet.src = chrome.runtime.getURL("assets/pet_happy.png");
 
-  container.appendChild(pet);
+  progressWrapper.appendChild(pet);
+
+  // Create usage display
+  const usageDisplay = document.createElement("div");
+  usageDisplay.style.cssText = `
+    margin-top: 4px;
+    font-family: 'Courier New', monospace;
+    font-size: 10px;
+    font-weight: bold;
+    color: #fff;
+    text-align: center;
+    background: rgba(0, 0, 0, 0.7);
+    padding: 2px 4px;
+    border-radius: 4px;
+    min-width: 50px;
+    text-shadow: 0 1px 2px rgba(0,0,0,0.8);
+  `;
+  usageDisplay.textContent = "0m / 2h";
+
+  container.appendChild(progressWrapper);
+  container.appendChild(usageDisplay);
   document.body.appendChild(container);
+
+  // Helper function to interpolate colors
+  function interpolateColor(startColor, endColor, factor) {
+    const start = {
+      r: parseInt(startColor.slice(1, 3), 16),
+      g: parseInt(startColor.slice(3, 5), 16),
+      b: parseInt(startColor.slice(5, 7), 16)
+    };
+    const end = {
+      r: parseInt(endColor.slice(1, 3), 16),
+      g: parseInt(endColor.slice(3, 5), 16),
+      b: parseInt(endColor.slice(5, 7), 16)
+    };
+    
+    const r = Math.round(start.r + (end.r - start.r) * factor);
+    const g = Math.round(start.g + (end.g - start.g) * factor);
+    const b = Math.round(start.b + (end.b - start.b) * factor);
+    
+    return `rgb(${r}, ${g}, ${b})`;
+  }
+
+  // Helper function to format time for usage display
+  function formatTimeForDisplay(minutes) {
+    if (minutes < 60) {
+      return `${minutes}m`;
+    } else {
+      const hours = Math.floor(minutes / 60);
+      const remainingMinutes = minutes % 60;
+      if (remainingMinutes === 0) {
+        return `${hours}h`;
+      } else {
+        return `${hours}h ${remainingMinutes}m`;
+      }
+    }
+  }
 
   // Make pet draggable
   let isDragging = false;
@@ -104,12 +213,12 @@
   // Hover effect (only when not dragging)
   container.addEventListener('mouseenter', () => {
     if (!isDragging) {
-      pet.style.transform = 'scale(1.1)';
+      pet.style.transform = 'translate(-50%, -50%) scale(1.1)';
     }
   });
   container.addEventListener('mouseleave', () => {
     if (!isDragging) {
-      pet.style.transform = 'scale(1)';
+      pet.style.transform = 'translate(-50%, -50%) scale(1)';
     }
   });
 
@@ -129,9 +238,16 @@
     }
   });
 
-  // Track time every second
-  setInterval(() => {
+  // Track time every second with error handling
+  const trackingInterval = setInterval(() => {
     if (isPageVisible) {
+      // Check if extension context is still valid
+      if (!chrome.runtime?.id) {
+        console.log("Extension context invalidated, stopping tracking");
+        clearInterval(trackingInterval);
+        return;
+      }
+      
       chrome.storage.local.get(['dailyUsage'], (result) => {
         if (chrome.runtime.lastError) {
           console.error("Storage error:", chrome.runtime.lastError);
@@ -152,8 +268,14 @@
     }
   }, 1000);
 
-  // Update pet appearance based on usage
+  // Update pet appearance and progress based on usage with error handling
   function updatePetAppearance() {
+    // Check if extension context is still valid
+    if (!chrome.runtime?.id) {
+      console.log("Extension context invalidated, stopping updates");
+      return;
+    }
+    
     chrome.storage.local.get(['dailyUsage', 'screenLimit'], (result) => {
       if (chrome.runtime.lastError) {
         console.error("Storage error:", chrome.runtime.lastError);
@@ -162,9 +284,12 @@
 
       const usage = result.dailyUsage || 0; // in seconds
       const limit = (result.screenLimit || 0.5) * 3600; // convert hours to seconds
+      const usageMinutes = Math.floor(usage / 60);
+      const limitMinutes = Math.floor(limit / 60);
       
       console.log("Current usage:", usage, "seconds, Limit:", limit, "seconds");
 
+      // Update pet image
       if (usage < limit * 0.7) {
         pet.src = chrome.runtime.getURL("assets/pet_happy.png");
       } else if (usage < limit) {
@@ -172,11 +297,42 @@
       } else {
         pet.src = chrome.runtime.getURL("assets/pet_sad.png");
       }
+
+      // Update donut progress
+      const percentage = Math.min(100, (usageMinutes / limitMinutes) * 100);
+      const circumference = 2 * Math.PI * 28; // radius = 28
+      const strokeDasharray = (percentage / 100) * circumference;
+      
+      progressCircle.setAttribute("stroke-dasharray", `${strokeDasharray} ${circumference}`);
+      
+      // Color interpolation from soft green to pink/red
+      const factor = Math.min(1, percentage / 100);
+      let color;
+      if (factor <= 0.7) {
+        // Green to yellow transition (0-70%)
+        color = interpolateColor("#4ade80", "#fbbf24", factor / 0.7);
+      } else {
+        // Yellow to red transition (70-100%)
+        color = interpolateColor("#fbbf24", "#ef4444", (factor - 0.7) / 0.3);
+      }
+      progressCircle.setAttribute("stroke", color);
+
+      // Update usage display
+      const usedFormatted = formatTimeForDisplay(usageMinutes);
+      const limitFormatted = formatTimeForDisplay(limitMinutes);
+      usageDisplay.textContent = `${usedFormatted} / ${limitFormatted}`;
     });
   }
 
-  // Update pet every 5 seconds
-  setInterval(updatePetAppearance, 5000);
+  // Update pet every 5 seconds with error handling
+  const updateInterval = setInterval(() => {
+    if (!chrome.runtime?.id) {
+      console.log("Extension context invalidated, stopping updates");
+      clearInterval(updateInterval);
+      return;
+    }
+    updatePetAppearance();
+  }, 5000);
   updatePetAppearance(); // Initial update
 
   // Click handler for popup (only if not dragging)
@@ -269,3 +425,4 @@
 
   console.log("Mindful Pet setup complete");
 })();
+      

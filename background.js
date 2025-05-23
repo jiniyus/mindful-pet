@@ -23,6 +23,52 @@ chrome.windows.onFocusChanged.addListener((windowId) => {
   console.log("Window focus changed:", isWindowFocused);
 });
 
+// Listen for tab updates to ensure pet appears on new pages
+chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
+  // When a tab finishes loading, inject the content script if needed
+  if (changeInfo.status === 'complete' && tab.url && !tab.url.startsWith('chrome://')) {
+    // Small delay to ensure page is ready
+    setTimeout(() => {
+      chrome.scripting.executeScript({
+        target: { tabId: tabId },
+        function: checkAndInjectPet
+      }).catch(err => {
+        // Ignore errors for pages where we can't inject (like chrome:// pages)
+        console.log("Could not inject into tab:", err.message);
+      });
+    }, 1000);
+  }
+});
+
+// Function to check if pet exists and inject if needed
+function checkAndInjectPet() {
+  // Only run if pet doesn't already exist
+  if (!document.getElementById('mindful-pet-container')) {
+    // Re-run the content script
+    if (!window.mindfulPetActive) {
+      // This will be injected inline, so we need to load the actual content script
+      const script = document.createElement('script');
+      script.src = chrome.runtime.getURL('content.js');
+      document.head.appendChild(script);
+    }
+  }
+}
+
+// Listen for tab activation (switching between tabs)
+chrome.tabs.onActivated.addListener((activeInfo) => {
+  console.log("Tab activated:", activeInfo.tabId);
+  
+  // Ensure pet is visible on the newly activated tab
+  setTimeout(() => {
+    chrome.scripting.executeScript({
+      target: { tabId: activeInfo.tabId },
+      function: checkAndInjectPet
+    }).catch(err => {
+      console.log("Could not inject into activated tab:", err.message);
+    });
+  }, 500);
+});
+
 // Reset daily usage at midnight
 chrome.alarms.create("dailyReset", {
   delayInMinutes: 1,
